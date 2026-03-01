@@ -27,7 +27,7 @@ jobs:
           echo "✅ bash -n OK"
 
   changelog:
-    if: github.event_name == "release"
+    if: github.event_name == release
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
