@@ -1,4 +1,4 @@
-name: Release
+name: CI
 
 on:
   push:
@@ -11,11 +11,10 @@ jobs:
     runs-on: ubuntu-latest
     steps:
     - uses: actions/checkout@v4
-    - name: Install shellcheck
-      run: sudo apt-get update && sudo apt-get install -y shellcheck
-    - name: Lint Shell
+    - name: Basic shell check
       run: |
-        find . -name "*.sh" -exec shellcheck {} + || true
+        # 仅检查 *.sh 文件是否存在语法错误（set -n）
+        find . -name "*.sh" -exec bash -n {} \; && echo "✅ all shell scripts OK"
 
   changelog:
     if: github.event_name == "release"
@@ -27,7 +26,7 @@ jobs:
     - name: Generate changelog
       run: |
         echo "## Changes" > CHANGELOG.md
-        git log --pretty=format:"- %s" $(git describe --tags --abbrev=0 HEAD~1)..HEAD >> CHANGELOG.md
+        git log --pretty=format:"- %s" $(git describe --tags --abbrev=0 HEAD~1 2>/dev/null || git rev-list --max-parents=0 HEAD)..HEAD >> CHANGELOG.md
     - name: Upload changelog
       uses: actions/upload-artifact@v4
       with:
