@@ -13,15 +13,15 @@
 #  适配: Alpine/Debian/Ubuntu/CentOS
 #  
 #  
-#  作者: Chil30
-#  项目地址: https://github.com/Chil30/vless-all-in-one
+#  作者: mjj001
+#  项目地址: https://github.com/mjj0001/anytls-oneclick
 #═══════════════════════════════════════════════════════════════════════════════
 
 readonly VERSION="3.4.10"
-readonly AUTHOR="Chil30"
-readonly REPO_URL="https://github.com/Chil30/vless-all-in-one"
-readonly SCRIPT_REPO="Chil30/vless-all-in-one"
-readonly SCRIPT_RAW_URL="https://raw.githubusercontent.com/Chil30/vless-all-in-one/main/vless-server.sh"
+readonly AUTHOR="mjj001"
+readonly REPO_URL="https://github.com/mjj0001/anytls-oneclick"
+readonly SCRIPT_REPO="mjj0001/anytls-oneclick"
+readonly SCRIPT_RAW_URL="https://raw.githubusercontent.com/mjj0001/anytls-oneclick/main/vless-server.sh"
 readonly CFG="/etc/vless-reality"
 readonly ACME_DEFAULT_EMAIL="acme@vaio.com"
 
