@@ -5,30 +5,46 @@ on:
     branches: [ main ]
   release:
     types: [ created ]
+  workflow_dispatch:
 
 jobs:
   lint:
     runs-on: ubuntu-latest
     steps:
-    - uses: actions/checkout@v4
-    - name: Basic shell check
-      run: |
-        # 仅检查 *.sh 文件是否存在语法错误（set -n）
-        find . -name "*.sh" -exec bash -n {} \; && echo "✅ all shell scripts OK"
+      - uses: actions/checkout@v4
+      - name: Basic shell syntax check
+        run: |
+          set -e
+          shopt -s globstar nullglob
+          files=(**/*.sh)
+          if [ ${#files[@]} -eq 0 ]; then
+            echo "No .sh files found"
+            exit 0
+          fi
+          for f in "${files[@]}"; do
+            bash -n "$f"
+          done
+          echo "✅ bash -n OK"
 
   changelog:
     if: github.event_name == "release"
     runs-on: ubuntu-latest
     steps:
-    - uses: actions/checkout@v4
-      with:
-        fetch-depth: 0
-    - name: Generate changelog
-      run: |
-        echo "## Changes" > CHANGELOG.md
-        git log --pretty=format:"- %s" $(git describe --tags --abbrev=0 HEAD~1 2>/dev/null || git rev-list --max-parents=0 HEAD)..HEAD >> CHANGELOG.md
-    - name: Upload changelog
-      uses: actions/upload-artifact@v4
-      with:
-        name: changelog
-        path: CHANGELOG.md
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Generate changelog
+        run: |
+          set -e
+          echo "## Changes" > CHANGELOG.md
+          last_tag=$(git describe --tags --abbrev=0 2>/dev/null || true)
+          if [ -n "$last_tag" ]; then
+            git log --pretty=format:"- %s" "$last_tag"..HEAD >> CHANGELOG.md
+          else
+            git log --pretty=format:"- %s" >> CHANGELOG.md
+          fi
+      - name: Upload changelog artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: changelog
+          path: CHANGELOG.md
