@@ -18,15 +18,25 @@
 
 ## 🚀 快速开始
 
-### 完整版 (推荐)
+### 完整版 (推荐 · 跟随 main 更新)
 ```bash
 bash <(curl -sL https://raw.githubusercontent.com/mjj0001/anytls-oneclick/main/vless-server.sh)
+```
+
+### 稳定版 (推荐 · 固定 Release 版本)
+> 适合希望“脚本不随时变动”的情况
+```bash
+bash <(curl -sL https://raw.githubusercontent.com/mjj0001/anytls-oneclick/v1.0.0/vless-server.sh)
 ```
 
 ### 简单版
 ```bash
 bash <(curl -sL https://raw.githubusercontent.com/mjj0001/anytls-oneclick/main/install.sh) install
 ```
+
+### 下载 Release 离线包
+- https://github.com/mjj0001/anytls-oneclick/releases/latest/download/anytls-oneclick-v1.0.0.tar.gz
+- https://github.com/mjj0001/anytls-oneclick/releases/latest/download/anytls-oneclick-v1.0.0.zip
 
 ---
 
