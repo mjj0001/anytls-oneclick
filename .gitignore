@@ -1,0 +1,8 @@
+# 本地配置或临时文件
+*.local
+.env
+*.log
+
+# 系统文件
+.DS_Store
+Thumbs.db
