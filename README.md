@@ -23,8 +23,14 @@
 bash <(curl -sL https://raw.githubusercontent.com/mjj0001/anytls-oneclick/main/vless-server.sh)
 ```
 
-### 稳定版 (推荐 · 固定 Release 版本)
-> 适合希望“脚本不随时变动”的情况
+### 稳定版 (推荐 · 跟随 stable 分支)
+> 适合希望“版本相对稳定、但也会持续修 bug”的情况
+```bash
+bash <(curl -sL https://raw.githubusercontent.com/mjj0001/anytls-oneclick/stable/vless-server.sh)
+```
+
+### 固定版 (固定 Release Tag)
+> 完全锁死版本（比如排查问题、复现环境时）
 ```bash
 bash <(curl -sL https://raw.githubusercontent.com/mjj0001/anytls-oneclick/v1.0.0/vless-server.sh)
 ```
@@ -35,8 +41,13 @@ bash <(curl -sL https://raw.githubusercontent.com/mjj0001/anytls-oneclick/main/i
 ```
 
 ### 下载 Release 离线包
-- https://github.com/mjj0001/anytls-oneclick/releases/latest/download/anytls-oneclick-v1.0.0.tar.gz
-- https://github.com/mjj0001/anytls-oneclick/releases/latest/download/anytls-oneclick-v1.0.0.zip
+**最新（推荐）**
+- https://github.com/mjj0001/anytls-oneclick/releases/latest/download/anytls-oneclick-latest.tar.gz
+- https://github.com/mjj0001/anytls-oneclick/releases/latest/download/anytls-oneclick-latest.zip
+
+**指定版本（v1.0.0）**
+- https://github.com/mjj0001/anytls-oneclick/releases/download/v1.0.0/anytls-oneclick-v1.0.0.tar.gz
+- https://github.com/mjj0001/anytls-oneclick/releases/download/v1.0.0/anytls-oneclick-v1.0.0.zip
 
 ---
 
