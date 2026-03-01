@@ -1,0 +1,33 @@
+name: Release
+
+on:
+  push:
+    branches: [ main ]
+  release:
+    types: [ created ]
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+    - name: Lint Shell
+      run: |
+        find . -name "*.sh" -exec shellcheck {} + || true
+
+  changelog:
+    if: github.event_name == "release"
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+      with:
+        fetch-depth: 0
+    - name: Generate changelog
+      run: |
+        echo "## Changes" > CHANGELOG.md
+        git log --pretty=format:"- %s" $(git describe --tags --abbrev=0 HEAD~1)..HEAD >> CHANGELOG.md
+    - name: Upload changelog
+      uses: actions/upload-artifact@v4
+      with:
+        name: changelog
+        path: CHANGELOG.md
