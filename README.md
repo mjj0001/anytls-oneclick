@@ -4,6 +4,13 @@
 
 ---
 
+## 🆕 更新 (v3.4.11)
+
+- 🛡️ **防 BT/PT/滥用 防护**：主菜单 `15)`（可选 iptables 规则 + 可选 Fail2ban）
+- 🧩 **TUI 面板模式（实验）**：主菜单 `14)`（whiptail/dialog，脚本可自动安装依赖）
+
+Release: https://github.com/mjj0001/anytls-oneclick/releases/tag/v3.4.11
+
 ## ✨ 功能特性
 
 | 特性 | 说明 |
