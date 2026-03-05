@@ -1,6 +1,6 @@
 #!/bin/bash 
 #═══════════════════════════════════════════════════════════════════════════════
-#  多协议代理一键部署脚本 v3.4.10 [服务端]
+#  多协议代理一键部署脚本 v3.4.11 [服务端]
 #  
 #  架构升级:
 #    • Xray 核心: 处理 TCP/TLS 协议 (VLESS/VMess/Trojan/SOCKS/SS2022)
@@ -17,13 +17,61 @@
 #  项目地址: https://github.com/mjj0001/anytls-oneclick
 #═══════════════════════════════════════════════════════════════════════════════
 
-readonly VERSION="3.4.10"
+readonly VERSION="3.4.11"
 readonly AUTHOR="mjj001"
 readonly REPO_URL="https://github.com/mjj0001/anytls-oneclick"
 readonly SCRIPT_REPO="mjj0001/anytls-oneclick"
 readonly SCRIPT_RAW_URL="https://raw.githubusercontent.com/mjj0001/anytls-oneclick/main/vless-server.sh"
 readonly CFG="/etc/vless-reality"
 readonly ACME_DEFAULT_EMAIL="acme@vaio.com"
+
+# UI 模式
+# USE_TUI=1 时，主菜单使用 whiptail/dialog 显示“面板式”菜单（实验功能）
+USE_TUI="${USE_TUI:-0}"
+UI_CONF_FILE="$CFG/ui.conf"
+
+_load_ui_conf() {
+    [[ -f "$UI_CONF_FILE" ]] || return 0
+    # shellcheck disable=SC1090
+    source "$UI_CONF_FILE" 2>/dev/null || true
+    [[ "${use_tui:-}" == "1" ]] && USE_TUI=1
+}
+
+_save_ui_conf() {
+    mkdir -p "$CFG" 2>/dev/null || true
+    local v=0
+    [[ "$USE_TUI" == "1" ]] && v=1
+    printf 'use_tui=%s
+' "$v" > "$UI_CONF_FILE" 2>/dev/null || true
+}
+
+_tui_available() {
+    command -v whiptail >/dev/null 2>&1 || command -v dialog >/dev/null 2>&1
+}
+
+_tui_menu() { # _tui_menu title prompt height width menuheight [tag item]...
+    local title="$1" prompt="$2" h="$3" w="$4" mh="$5"; shift 5
+    if command -v whiptail >/dev/null 2>&1; then
+        whiptail --title "$title" --menu "$prompt" "$h" "$w" "$mh" "$@" 3>&1 1>&2 2>&3
+        return $?
+    elif command -v dialog >/dev/null 2>&1; then
+        dialog --stdout --title "$title" --menu "$prompt" "$h" "$w" "$mh" "$@"
+        return $?
+    fi
+    return 1
+}
+
+_tui_msg() { # _tui_msg title text
+    local title="$1" text="$2"
+    if command -v whiptail >/dev/null 2>&1; then
+        whiptail --title "$title" --msgbox "$text" 20 78
+    elif command -v dialog >/dev/null 2>&1; then
+        dialog --title "$title" --msgbox "$text" 20 78
+    else
+        echo -e "$text"
+    fi
+}
+
 
 # curl 超时常量
 readonly CURL_TIMEOUT_FAST=5
@@ -24687,11 +24735,330 @@ do_update() {
     fi
 }
 
+
+
+#═══════════════════════════════════════════════════════════════════════════════
+#  防 BT/PT/滥用 防护（可选）
+#  - 仅建议用于“你只拿来科学上网”的机器
+#  - 可能影响下载/游戏/某些 UDP 应用
+#═══════════════════════════════════════════════════════════════════════════════
+
+ABUSE_CONF_FILE="$CFG/abuse-protection.conf"
+
+_load_abuse_conf() {
+    [[ -f "$ABUSE_CONF_FILE" ]] || return 0
+    # shellcheck disable=SC1090
+    source "$ABUSE_CONF_FILE" 2>/dev/null || true
+}
+
+_save_abuse_conf() {
+    mkdir -p "$CFG" 2>/dev/null || true
+    printf 'enabled=%s
+' "${abuse_enabled:-0}" > "$ABUSE_CONF_FILE" 2>/dev/null || true
+}
+
+_detect_fw_backend() {
+    if command -v nft >/dev/null 2>&1 && (nft list ruleset >/dev/null 2>&1); then
+        echo nft
+        return
+    fi
+    if command -v iptables >/dev/null 2>&1; then
+        echo iptables
+        return
+    fi
+    echo none
+}
+
+_install_fw_deps() {
+    local deps=""
+    case "$DISTRO" in
+        debian|ubuntu) deps="iptables nftables" ;;
+        centos|rhel|rocky|alma) deps="iptables-services nftables" ;;
+        alpine) deps="iptables" ;;
+        *) deps="iptables" ;;
+    esac
+    # 走脚本已有的依赖安装流程（如果有），否则简单装
+    case "$DISTRO" in
+        debian|ubuntu)
+            DEBIAN_FRONTEND=noninteractive apt-get update -qq >/dev/null 2>&1 || true
+            DEBIAN_FRONTEND=noninteractive apt-get install -y $deps >/dev/null 2>&1 || true
+            ;;
+        centos|rhel|rocky|alma)
+            yum install -y $deps >/dev/null 2>&1 || true
+            ;;
+        alpine)
+            apk add --no-cache $deps >/dev/null 2>&1 || true
+            ;;
+    esac
+}
+
+# 生成一份“尽量不误伤”的 iptables 规则：
+# - 不碰已建立连接
+# - 不封 80/443/ssh(22)（避免把自己锁外面）
+# - 主要限制常见 BT 特征端口 + 过量新建连接
+_apply_abuse_iptables() {
+    local chain="VLESS_ABUSE"
+
+    # 创建链
+    iptables -N "$chain" 2>/dev/null || true
+    iptables -F "$chain" 2>/dev/null || true
+
+    # 放行已建立连接
+    iptables -A "$chain" -m conntrack --ctstate ESTABLISHED,RELATED -j RETURN
+
+    # 放行 ssh/http/https
+    iptables -A "$chain" -p tcp -m multiport --dports 22,80,443 -j RETURN
+
+    # 基础抗滥用：限制新连接速率（防扫端口/爆连接）
+    iptables -A "$chain" -p tcp -m conntrack --ctstate NEW -m hashlimit         --hashlimit-name vless_new_conn --hashlimit 60/min --hashlimit-burst 120         --hashlimit-mode srcip --hashlimit-htable-expire 600000 -j RETURN
+
+    # BT 常见端口段（轻量拦截）：6881-6999
+    iptables -A "$chain" -p tcp --dport 6881:6999 -j REJECT
+    iptables -A "$chain" -p udp --dport 6881:6999 -j DROP
+
+    # 其他历史常见 BT/DHT 端口（可覆盖一些默认）
+    iptables -A "$chain" -p udp --dport 1900 -j DROP  # SSDP
+    iptables -A "$chain" -p udp --dport 51413 -j DROP # Transmission
+
+    # 默认返回
+    iptables -A "$chain" -j RETURN
+
+    # 挂到 INPUT 顶部（只挂一次）
+    if ! iptables -C INPUT -j "$chain" >/dev/null 2>&1; then
+        iptables -I INPUT 1 -j "$chain"
+    fi
+
+    # 持久化（尽力而为）
+    if command -v netfilter-persistent >/dev/null 2>&1; then
+        netfilter-persistent save >/dev/null 2>&1 || true
+    elif command -v service >/dev/null 2>&1 && service iptables save >/dev/null 2>&1; then
+        true
+    fi
+}
+
+_remove_abuse_iptables() {
+    local chain="VLESS_ABUSE"
+    iptables -D INPUT -j "$chain" >/dev/null 2>&1 || true
+    iptables -F "$chain" >/dev/null 2>&1 || true
+    iptables -X "$chain" >/dev/null 2>&1 || true
+    if command -v netfilter-persistent >/dev/null 2>&1; then
+        netfilter-persistent save >/dev/null 2>&1 || true
+    fi
+}
+
+# Fail2ban：只做 SSH + Nginx（订阅）基础防爆破
+_install_fail2ban() {
+    case "$DISTRO" in
+        debian|ubuntu)
+            DEBIAN_FRONTEND=noninteractive apt-get update -qq >/dev/null 2>&1 || true
+            DEBIAN_FRONTEND=noninteractive apt-get install -y fail2ban >/dev/null 2>&1 || return 1
+            ;;
+        centos|rhel|rocky|alma)
+            yum install -y epel-release >/dev/null 2>&1 || true
+            yum install -y fail2ban >/dev/null 2>&1 || return 1
+            ;;
+        alpine)
+            apk add --no-cache fail2ban >/dev/null 2>&1 || return 1
+            ;;
+        *)
+            return 1
+            ;;
+    esac
+
+    mkdir -p /etc/fail2ban/jail.d
+    cat >/etc/fail2ban/jail.d/vless-abuse.local <<'EOF'
+[sshd]
+enabled = true
+maxretry = 6
+findtime = 10m
+bantime = 1h
+
+# Nginx 订阅服务：仅当你启用订阅(Nginx)时有意义
+[nginx-http-auth]
+enabled = true
+
+[nginx-badbots]
+enabled = true
+EOF
+
+    if [[ "$DISTRO" == "alpine" ]]; then
+        rc-service fail2ban restart >/dev/null 2>&1 || true
+        rc-update add fail2ban default >/dev/null 2>&1 || true
+    else
+        systemctl enable --now fail2ban >/dev/null 2>&1 || true
+        systemctl restart fail2ban >/dev/null 2>&1 || true
+    fi
+    return 0
+}
+
+abuse_protection_menu() {
+    _load_abuse_conf
+    while true; do
+        _header
+        echo -e "  ${W}防 BT/PT/滥用 防护${NC}"
+        _line
+        local st="${D}关闭${NC}"
+        [[ "${abuse_enabled:-0}" == "1" ]] && st="${G}开启${NC}"
+        echo -e "  当前状态: $st"
+        echo -e "  ${D}说明：此功能主要用于减少 BT/PT/爆连接/爆破。可能会误伤部分下载/游戏/UDP应用。${NC}"
+        echo ""
+        _item "1" "启用(iptables 规则 + 可选 Fail2ban)"
+        _item "2" "关闭并移除规则"
+        _item "3" "安装/刷新 Fail2ban(SSH/Nginx)"
+        _item "0" "返回"
+        _line
+        read -rp "  请选择: " c
+        case "$c" in
+            1)
+                _install_fw_deps
+                local backend=$(_detect_fw_backend)
+                if [[ "$backend" == "none" ]]; then
+                    _err "未检测到可用防火墙(iptables/nftables)"
+                    _pause
+                    continue
+                fi
+                if [[ "$backend" != "iptables" ]]; then
+                    _warn "当前仅实现 iptables 规则（nft 将在后续版本补上）"
+                fi
+                _apply_abuse_iptables
+                abuse_enabled=1
+                _save_abuse_conf
+                _ok "防护规则已启用"
+                read -rp "  是否顺便安装 Fail2ban? [y/N]: " yn
+                [[ "$yn" =~ ^[yY]$ ]] && _install_fail2ban && _ok "Fail2ban 已启用" || true
+                _pause
+                ;;
+            2)
+                _remove_abuse_iptables
+                abuse_enabled=0
+                _save_abuse_conf
+                _ok "已移除防护规则"
+                _pause
+                ;;
+            3)
+                if _install_fail2ban; then
+                    _ok "Fail2ban 已安装/刷新"
+                else
+                    _err "Fail2ban 安装失败（可能是发行版源不支持）"
+                fi
+                _pause
+                ;;
+            0) return ;;
+        esac
+    done
+}
+
+#═══════════════════════════════════════════════════════════════════════════════
+#  UI / TUI 面板模式（实验）
+#═══════════════════════════════════════════════════════════════════════════════
+
+ui_settings() {
+    _header
+    echo -e "  ${W}界面设置 (TUI面板模式)${NC}"
+    _line
+
+    local status="关闭"
+    [[ "$USE_TUI" == "1" ]] && status="开启"
+
+    echo -e "  当前: ${G}${status}${NC}"
+    echo -e "  ${D}说明：开启后主菜单使用 whiptail/dialog 显示“面板式”菜单。${NC}"
+    echo -e "  ${D}要求：系统已安装 whiptail(推荐) 或 dialog。${NC}"
+    echo ""
+
+    if ! _tui_available; then
+        _warn "检测不到 whiptail/dialog：需要安装后才能启用"
+        echo -e "  ${D}Debian/Ubuntu: apt-get install -y whiptail${NC}"
+        echo -e "  ${D}CentOS/RHEL: yum install -y newt${NC}"
+        echo -e "  ${D}Alpine: apk add --no-cache dialog${NC}"
+        echo ""
+        read -rp "  是否现在安装（自动）? [y/N]: " ins
+        if [[ "$ins" =~ ^[yY]$ ]]; then
+            install_tui_deps || { _err "安装失败"; _pause; return; }
+        else
+            _pause
+            return
+        fi
+    fi
+
+    read -rp "  是否开启 TUI 面板模式? [y/N]: " yn
+    if [[ "$yn" =~ ^[yY]$ ]]; then
+        USE_TUI=1
+        _save_ui_conf
+        _ok "已开启 TUI 面板模式（下次进入主菜单生效）"
+    else
+        USE_TUI=0
+        _save_ui_conf
+        _ok "已关闭 TUI 面板模式"
+    fi
+    _pause
+}
+
+install_tui_deps() {
+    _info "安装 TUI 依赖..."
+    case "$DISTRO" in
+        debian|ubuntu)
+            DEBIAN_FRONTEND=noninteractive apt-get update -qq >/dev/null 2>&1 || true
+            DEBIAN_FRONTEND=noninteractive apt-get install -y whiptail >/dev/null 2>&1 && return 0
+            # fallback to dialog
+            DEBIAN_FRONTEND=noninteractive apt-get install -y dialog >/dev/null 2>&1 && return 0
+            ;;
+        centos|rhel|rocky|alma)
+            yum install -y newt >/dev/null 2>&1 && return 0
+            yum install -y dialog >/dev/null 2>&1 && return 0
+            ;;
+        alpine)
+            apk add --no-cache dialog >/dev/null 2>&1 && return 0
+            ;;
+    esac
+    return 1
+}
+
+# TUI 版主菜单（仅负责选择项，实际执行仍复用原逻辑）
+main_menu_tui() {
+    while true; do
+        # 用 show_status 缓存判断是否已安装
+        show_status >/dev/null 2>&1 || true
+        local installed="$_INSTALLED_CACHE"
+
+        local title="AnyTLS 服务端管理"
+        local prompt="请选择操作"
+
+        local choice=""
+        if [[ -n "$installed" ]]; then
+            choice=$(_tui_menu "$title" "$prompt" 24 78 16                 "1" "安装新协议 (多协议共存)"                 "2" "核心版本管理 (Xray/Sing-box)"                 "3" "卸载指定协议"                 "4" "用户管理 (多用户/流量/通知)"                 "5" "查看协议配置"                 "6" "订阅服务管理"                 "7" "管理协议服务"                 "8" "分流管理"                 "9" "CF Tunnel(Argo)"                 "10" "BBR 网络优化"                 "11" "查看运行日志"                 "12" "检查脚本更新"                 "13" "完全卸载"                 "14" "界面设置 (TUI面板)"                 "15" "防 BT/PT/滥用 防护"                 "0" "退出") || return
+        else
+            choice=$(_tui_menu "$title" "$prompt" 22 78 10                 "1" "安装协议"                 "12" "检查脚本更新"                 "14" "界面设置 (TUI面板)"                 "15" "防 BT/PT/滥用 防护"                 "0" "退出") || return
+        fi
+
+        case "$choice" in
+            1) do_install_server ;;
+            2) update_core_menu ;;
+            3) uninstall_specific_protocol ;;
+            4) manage_users ;;
+            5) show_all_protocols_info ;;
+            6) manage_subscription ;;
+            7) manage_protocol_services ;;
+            8) manage_routing ;;
+            9) manage_cloudflare_tunnel ;;
+            10) enable_bbr ;;
+            11) show_logs ;;
+            12) do_update ;;
+            13) do_uninstall ;;
+            14) ui_settings ;;
+            15) abuse_protection_menu ;;
+            0) return ;;
+        esac
+    done
+}
+
 main_menu() {
     check_root
     init_log  # 初始化日志
     init_db   # 初始化 JSON 数据库
     db_migrate_to_multiuser  # 迁移旧的单用户配置到多用户格式
+
+    # 加载 UI 配置（是否启用 TUI 面板模式）
+    _load_ui_conf
 
     # 自动更新系统脚本 (确保 vless 命令始终是最新版本)
     _auto_update_system_script
@@ -24778,7 +25145,10 @@ main_menu() {
             local script_update_item="检查脚本更新"
             [[ -n "$script_update_ver" ]] && script_update_item="检查脚本更新 ${Y}[有更新 v${script_update_ver}]${NC}"
             _item "12" "$script_update_item"
+            _item "14" "界面设置 (TUI面板)"
+            _item "15" "防 BT/PT/滥用 防护"
             _item "13" "完全卸载"
+            _item "14" "界面设置 (TUI面板)"
         else
             _item "1" "安装协议"
             echo -e "  ${D}───────────────────────────────────────────${NC}"
@@ -24806,7 +25176,11 @@ main_menu() {
                 10) enable_bbr; skip_pause=true ;;
                 11) show_logs; skip_pause=true ;;
                 12) do_update ;;
+                14) ui_settings; skip_pause=true ;;
+                15) abuse_protection_menu; skip_pause=true ;;
+                15) abuse_protection_menu; skip_pause=true ;;
                 13) do_uninstall ;;
+                14) ui_settings; skip_pause=true ;;
                 0) exit 0 ;;
                 *) _err "无效选择"; skip_pause=true ;;
             esac
@@ -24878,7 +25252,11 @@ case "${1:-}" in
         ;;
     "")
         # 无参数，启动主菜单
-        main_menu
+        if [[ "$USE_TUI" == "1" ]] && _tui_available; then
+            main_menu_tui
+        else
+            main_menu
+        fi
         ;;
     *)
         echo "未知参数: $1"
