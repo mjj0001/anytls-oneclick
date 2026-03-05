@@ -1,6 +1,6 @@
 #!/bin/bash 
 #═══════════════════════════════════════════════════════════════════════════════
-#  多协议代理一键部署脚本 v3.4.12 [服务端]
+#  多协议代理一键部署脚本 v3.4.13 [服务端]
 #  
 #  架构升级:
 #    • Xray 核心: 处理 TCP/TLS 协议 (VLESS/VMess/Trojan/SOCKS/SS2022)
@@ -17,7 +17,7 @@
 #  项目地址: https://github.com/mjj0001/anytls-oneclick
 #═══════════════════════════════════════════════════════════════════════════════
 
-readonly VERSION="3.4.12"
+readonly VERSION="3.4.13"
 readonly AUTHOR="mjj001"
 readonly REPO_URL="https://github.com/mjj0001/anytls-oneclick"
 readonly SCRIPT_REPO="mjj0001/anytls-oneclick"
@@ -25049,6 +25049,97 @@ abuse_protection_menu() {
     done
 }
 
+
+#═══════════════════════════════════════════════════════════════════════════════
+# 自定义快捷指令 - 设置菜单
+#═══════════════════════════════════════════════════════════════════════════════
+
+shortcut_settings() {
+    while true; do
+        _header
+        echo -e "  ${W}自定义快捷指令设置${NC}"
+        _line
+
+        local cur=""
+        cur=$(_get_custom_shortcut 2>/dev/null) || true
+        if [[ -n "$cur" ]]; then
+            echo -e "  当前命令: ${G}$cur${NC}"
+            echo -e "  路径: ${D}/usr/local/bin/$cur -> /usr/local/bin/vless-server.sh${NC}"
+        else
+            echo -e "  当前命令: ${D}未设置${NC}"
+        fi
+        echo ""
+        _item "1" "设置/更换自定义命令"
+        _item "2" "删除自定义命令（移除软链接 + 清空配置）"
+        _item "3" "重新创建软链接（修复被误删）"
+        _item "0" "返回"
+        _line
+
+        read -rp "  请选择: " c
+        case "$c" in
+            1)
+                # 允许更换：如果已有，先提示确认
+                if [[ -n "$cur" ]]; then
+                    read -rp "  已存在 '$cur'，确认更换? [y/N]: " yn
+                    [[ ! "$yn" =~ ^[yY]$ ]] && continue
+                fi
+                # 复用首次提示逻辑，但不允许空跳过
+                local cmd
+                while true; do
+                    read -rp "  输入新命令(字母数字1-16位): " cmd
+                    cmd="${cmd// /}"
+                    if ! _valid_custom_shortcut "$cmd"; then
+                        _err "只能是字母数字(1-16位)，不能有符号/空格"
+                        continue
+                    fi
+                    if _custom_shortcut_exists "$cmd"; then
+                        _err "命令 '$cmd' 已存在（避免覆盖），换一个"
+                        continue
+                    fi
+                    # 清理旧链接
+                    [[ -n "$cur" ]] && rm -f "/usr/local/bin/$cur" 2>/dev/null || true
+                    _set_custom_shortcut "$cmd"
+                    if _create_custom_shortcut_link "$cmd"; then
+                        _ok "已更新自定义命令：${G}$cmd${NC}"
+                        echo -e "  ${Y}以后直接输入：${G}$cmd${NC} 打开主菜单。${NC}"
+                    else
+                        _warn "已保存命令，但创建链接失败（可能权限不足）"
+                    fi
+                    _pause
+                    break
+                done
+                ;;
+            2)
+                if [[ -z "$cur" ]]; then
+                    _warn "当前未设置"
+                    _pause
+                    continue
+                fi
+                read -rp "  确认删除 '$cur'? [y/N]: " yn
+                [[ ! "$yn" =~ ^[yY]$ ]] && continue
+                rm -f "/usr/local/bin/$cur" 2>/dev/null || true
+                rm -f "$SHORTCUT_CONF_FILE" 2>/dev/null || true
+                _ok "已删除自定义命令"
+                _pause
+                ;;
+            3)
+                if [[ -z "$cur" ]]; then
+                    _warn "当前未设置"
+                    _pause
+                    continue
+                fi
+                if _create_custom_shortcut_link "$cur"; then
+                    _ok "已重新创建软链接：${G}$cur${NC}"
+                else
+                    _err "创建失败（请确认 /usr/local/bin/vless-server.sh 存在）"
+                fi
+                _pause
+                ;;
+            0) return ;;
+        esac
+    done
+}
+
 #═══════════════════════════════════════════════════════════════════════════════
 #  UI / TUI 面板模式（实验）
 #═══════════════════════════════════════════════════════════════════════════════
@@ -25147,6 +25238,7 @@ main_menu_tui() {
             13) do_uninstall ;;
             14) ui_settings ;;
             15) abuse_protection_menu ;;
+            16) shortcut_settings ;;
             0) return ;;
         esac
     done
@@ -25251,6 +25343,8 @@ main_menu() {
             _item "12" "$script_update_item"
             _item "14" "界面设置 (TUI面板)"
             _item "15" "防 BT/PT/滥用 防护"
+            _item "16" "快捷命令设置"
+            _item "16" "快捷命令设置"
             _item "13" "完全卸载"
             _item "14" "界面设置 (TUI面板)"
         else
@@ -25282,6 +25376,8 @@ main_menu() {
                 12) do_update ;;
                 14) ui_settings; skip_pause=true ;;
                 15) abuse_protection_menu; skip_pause=true ;;
+                16) shortcut_settings; skip_pause=true ;;
+                16) shortcut_settings; skip_pause=true ;;
                 15) abuse_protection_menu; skip_pause=true ;;
                 13) do_uninstall ;;
                 14) ui_settings; skip_pause=true ;;
