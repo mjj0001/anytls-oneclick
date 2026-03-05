@@ -1,6 +1,6 @@
 #!/bin/bash 
 #═══════════════════════════════════════════════════════════════════════════════
-#  多协议代理一键部署脚本 v3.4.11 [服务端]
+#  多协议代理一键部署脚本 v3.4.12 [服务端]
 #  
 #  架构升级:
 #    • Xray 核心: 处理 TCP/TLS 协议 (VLESS/VMess/Trojan/SOCKS/SS2022)
@@ -17,7 +17,7 @@
 #  项目地址: https://github.com/mjj0001/anytls-oneclick
 #═══════════════════════════════════════════════════════════════════════════════
 
-readonly VERSION="3.4.11"
+readonly VERSION="3.4.12"
 readonly AUTHOR="mjj001"
 readonly REPO_URL="https://github.com/mjj0001/anytls-oneclick"
 readonly SCRIPT_REPO="mjj0001/anytls-oneclick"
@@ -10543,6 +10543,107 @@ _auto_update_system_script() {
             _ok "系统脚本已同步更新 (v$VERSION)"
         fi
     fi
+}
+
+
+#═══════════════════════════════════════════════════════════════════════════════
+# 自定义快捷指令（用户自定义字母数字，比如：a / k2 / go）
+# 说明：
+# - 首次运行脚本时，引导用户设置一个自定义命令，用于快速打开主菜单。
+# - 默认仍会创建 vless / vless-server.sh 软链接。
+# - 自定义命令会软链接到系统脚本 /usr/local/bin/vless-server.sh
+#═══════════════════════════════════════════════════════════════════════════════
+
+SHORTCUT_CONF_FILE="$CFG/shortcut.conf"
+
+_get_custom_shortcut() {
+    [[ -f "$SHORTCUT_CONF_FILE" ]] || return 1
+    # shellcheck disable=SC1090
+    source "$SHORTCUT_CONF_FILE" 2>/dev/null || true
+    [[ -n "${custom_cmd:-}" ]] && echo "$custom_cmd" && return 0
+    return 1
+}
+
+_set_custom_shortcut() {
+    local cmd="$1"
+    mkdir -p "$CFG" 2>/dev/null || true
+    printf 'custom_cmd=%q
+' "$cmd" > "$SHORTCUT_CONF_FILE" 2>/dev/null || true
+}
+
+_valid_custom_shortcut() {
+    local cmd="$1"
+    # 只允许字母数字，长度 1-16
+    [[ "$cmd" =~ ^[a-zA-Z0-9]{1,16}$ ]]
+}
+
+_custom_shortcut_exists() {
+    local cmd="$1"
+    command -v "$cmd" >/dev/null 2>&1
+}
+
+_create_custom_shortcut_link() {
+    local cmd="$1"
+    local system_script="/usr/local/bin/vless-server.sh"
+
+    # 确保系统脚本存在
+    [[ -f "$system_script" ]] || return 1
+
+    # 软链接到 /usr/local/bin
+    ln -sf "$system_script" "/usr/local/bin/$cmd" 2>/dev/null || return 1
+    chmod +x "$system_script" 2>/dev/null || true
+    hash -r 2>/dev/null || true
+    return 0
+}
+
+_prompt_custom_shortcut_once() {
+    # 如果已经设置过，不再打扰
+    local existing
+    existing=$(_get_custom_shortcut 2>/dev/null) || true
+    if [[ -n "$existing" ]]; then
+        # 确保链接存在（避免被误删）
+        _create_custom_shortcut_link "$existing" 2>/dev/null || true
+        return 0
+    fi
+
+    _header
+    echo -e "  ${W}自定义快捷指令（可选）${NC}"
+    _line
+    echo -e "  你可以设置一个字母/数字命令，用来一键打开主菜单。"
+    echo -e "  例如：${G}a${NC} / ${G}k2${NC} / ${G}go${NC}"
+    echo -e "  ${D}规则：仅字母数字，长度 1-16；留空跳过。${NC}"
+    echo ""
+
+    local cmd
+    while true; do
+        read -rp "  请输入自定义命令（留空跳过）: " cmd
+        cmd="${cmd// /}"
+        [[ -z "$cmd" ]] && return 0
+
+        if ! _valid_custom_shortcut "$cmd"; then
+            _err "只能是字母数字(1-16位)，不能有符号/空格"
+            continue
+        fi
+
+        # 避免覆盖系统命令
+        if _custom_shortcut_exists "$cmd"; then
+            _err "命令 '$cmd' 已存在（避免覆盖），换一个"
+            continue
+        fi
+
+        # 保存并创建链接
+        _set_custom_shortcut "$cmd"
+        if _create_custom_shortcut_link "$cmd"; then
+            _ok "已创建自定义命令：${G}$cmd${NC}"
+            echo -e "  ${Y}以后直接输入：${G}$cmd${NC} 即可打开主菜单。${NC}"
+        else
+            _warn "已保存命令，但创建链接失败（可能权限不足）"
+            echo -e "  ${Y}下次可在 root 下重试。${NC}"
+        fi
+        echo ""
+        _pause
+        return 0
+    done
 }
 
 create_shortcut() {
@@ -25059,6 +25160,9 @@ main_menu() {
 
     # 加载 UI 配置（是否启用 TUI 面板模式）
     _load_ui_conf
+
+    # 首次引导：自定义快捷命令
+    _prompt_custom_shortcut_once
 
     # 自动更新系统脚本 (确保 vless 命令始终是最新版本)
     _auto_update_system_script
