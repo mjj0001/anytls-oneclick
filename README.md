@@ -140,6 +140,40 @@ rules:
 
 ## 🖥️ 管理命令
 
+> 推荐使用快捷命令 `vless` 打开主菜单（脚本会自动创建）。
+
+```bash
+# 打开主菜单
+vless
+
+# 或者直接运行脚本
+bash vless-server.sh
+```
+
+### 常用子命令（非交互）
+
+```bash
+# 查看帮助
+./vless-server.sh -h
+
+# 流量同步（用于定时任务）
+./vless-server.sh --sync-traffic
+
+# 显示流量统计
+./vless-server.sh --show-traffic
+
+# 检查并禁用过期用户（可选通知）
+./vless-server.sh --check-expire --notify
+
+# 安装过期检查定时任务
+./vless-server.sh --setup-expire-cron
+```
+
+### 主菜单新增入口（v3.4.11）
+
+- `14) 界面设置 (TUI面板)`：whiptail/dialog 面板模式（实验）
+- `15) 防 BT/PT/滥用 防护`：iptables 规则 + 可选 Fail2ban（按需开启）
+
 
 ## 🛡️ 安全与防滥用（新增）
 
